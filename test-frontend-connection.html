@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend API Test</title>
+</head>
+<body>
+    <h1>Frontend API Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        async function testAPI() {
+            const resultsDiv = document.getElementById('results');
+            
+            try {
+                // Test login
+                const loginResponse = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: 'processor@example.com',
+                        password: 'password123'
+                    })
+                });
+                
+                const loginData = await loginResponse.json();
+                resultsDiv.innerHTML += '<p>✅ Login successful</p>';
+                
+                if (loginData.success) {
+                    // Test batch lookup
+                    const batchResponse = await fetch('http://localhost:5000/api/processors/batches/TUL-2024-602929', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${loginData.token}`,
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    const batchData = await batchResponse.json();
+                    
+                    if (batchData.success) {
+                        resultsDiv.innerHTML += '<p>✅ Batch lookup successful</p>';
+                        resultsDiv.innerHTML += `<p>Batch ID: ${batchData.batch.batchId}</p>`;
+                        resultsDiv.innerHTML += `<p>Herb Species: ${batchData.batch.herbSpecies}</p>`;
+                        resultsDiv.innerHTML += `<p>Status: ${batchData.batch.status}</p>`;
+                    } else {
+                        resultsDiv.innerHTML += `<p>❌ Batch lookup failed: ${batchData.message}</p>`;
+                    }
+                }
+                
+            } catch (error) {
+                resultsDiv.innerHTML += `<p>❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run test when page loads
+        testAPI();
+    </script>
+</body>
+</html>
