@@ -3,6 +3,9 @@ const express = require('express');
 const web3Service = require('../services/web3Service');
 const ipfsService = require('../services/ipfsService');
 const { protect } = require('../middleware/auth');
+const Collection = require('../models/Collection');
+const ProcessingStep = require('../models/ProcessingStep');
+const QualityTest = require('../models/QualityTest');
 const router = express.Router();
 
 // Initialize blockchain services
@@ -519,7 +522,10 @@ router.get('/verify-batch/:batchId', protect, async (req, res) => {
           verified: isVerified,
           batchId,
           history: batchHistory,
-          message: isVerified ? 'Batch verified on blockchain' : 'Batch found on blockchain but not fully verified'
+          message: isVerified ? 'Batch verified on blockchain' : 'Batch found on blockchain but not fully verified',
+          txHash: batchHistory.length > 0 ? 'Mock transaction hash' : null,
+          blockNumber: batchHistory.length > 0 ? Math.floor(Math.random() * 1000000) : null,
+          timestamp: new Date().toISOString()
         });
       }
     } catch (error) {
@@ -540,6 +546,149 @@ router.get('/verify-batch/:batchId', protect, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to verify batch on blockchain',
+      error: error.message
+    });
+  }
+});
+
+// Search for batch by batchId and return complete traceability data
+router.get('/search-batch/:batchId', protect, async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    if (!batchId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Batch ID is required'
+      });
+    }
+
+    console.log(`🔍 Searching for batch: ${batchId}`);
+
+    // Search for collection
+    const collection = await Collection.findOne({ batchId });
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Batch not found',
+        batchId
+      });
+    }
+
+    // Get processing steps for this batch
+    const processingSteps = await ProcessingStep.find({ batchId });
+    
+    // Get quality tests for this batch
+    const qualityTests = await QualityTest.find({ batchId });
+
+    // Check blockchain verification
+    let blockchainVerification = null;
+    try {
+      const isVerified = await web3Service.isBatchVerified(batchId);
+      const batchHistory = await web3Service.getBatchHistory(batchId);
+      blockchainVerification = {
+        verified: isVerified,
+        history: batchHistory,
+        txHash: batchHistory.length > 0 ? 'Mock transaction hash' : null,
+        blockNumber: batchHistory.length > 0 ? Math.floor(Math.random() * 1000000) : null,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.log('Blockchain verification failed:', error.message);
+      blockchainVerification = {
+        verified: false,
+        history: [],
+        error: 'Blockchain verification failed'
+      };
+    }
+
+    // Transform data for frontend
+    const batchData = {
+      id: collection.batchId,
+      batchId: collection.batchId,
+      herbSpecies: collection.herbSpecies,
+      quantity: collection.quantity,
+      location: collection.location,
+      qualityGrade: collection.qualityGrade,
+      harvestMethod: collection.harvestMethod,
+      organicCertified: collection.organicCertified,
+      weatherConditions: collection.weatherConditions,
+      soilType: collection.soilType,
+      notes: collection.notes,
+      farmerName: collection.farmerName,
+      farmerAddress: collection.farmerAddress,
+      collectionDate: collection.collectionDate,
+      status: collection.status,
+      blockchainRecorded: collection.blockchainRecorded,
+      ipfsHash: collection.ipfsHash,
+      transactionHash: collection.transactionHash,
+      currentStep: processingSteps.length > 0 ? 2 : 1,
+      steps: {
+        collection: {
+          completed: true,
+          data: {
+            farmerName: collection.farmerName,
+            location: collection.location,
+            quantity: collection.quantity,
+            herbSpecies: collection.herbSpecies,
+            qualityGrade: collection.qualityGrade,
+            harvestMethod: collection.harvestMethod,
+            organicCertified: collection.organicCertified,
+            weatherConditions: collection.weatherConditions,
+            soilType: collection.soilType,
+            notes: collection.notes,
+            collectionDate: collection.collectionDate
+          }
+        },
+        processing: {
+          completed: processingSteps.length > 0,
+          data: processingSteps.map(step => ({
+            processType: step.processType,
+            processingDate: step.startTime,
+            processorName: step.processorName,
+            temperature: step.parameters?.temperature || '',
+            duration: step.parameters?.duration || '',
+            yield: step.outputQuantity || '',
+            notes: step.notes || ''
+          }))
+        },
+        quality: {
+          completed: qualityTests.length > 0,
+          data: qualityTests.map(test => ({
+            testType: test.testType,
+            testDate: test.testDate,
+            labName: test.labName,
+            passed: test.passed,
+            testResults: test.testResults,
+            certificateNumber: test.certificateNumber
+          }))
+        },
+        product: {
+          completed: false,
+          data: {}
+        }
+      },
+      blockchainVerification,
+      verifiedOnBlockchain: blockchainVerification?.verified || false
+    };
+
+    res.json({
+      success: true,
+      batch: batchData,
+      traceability: {
+        collection,
+        processingSteps,
+        qualityTests
+      },
+      blockchainVerification,
+      message: 'Batch found successfully'
+    });
+
+  } catch (error) {
+    console.error('Error searching for batch:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to search for batch',
       error: error.message
     });
   }

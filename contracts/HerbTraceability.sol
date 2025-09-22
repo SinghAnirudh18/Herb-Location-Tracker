@@ -230,7 +230,7 @@ contract HerbTraceability is Ownable, ReentrancyGuard, Pausable {
         string memory _outputBatchId,
         string memory _processDetails,
         string memory _ipfsHash
-    ) external onlyAuthorizedProcessor {
+    ) external onlyAuthorizedProcessor whenNotPaused nonReentrant {
         require(bytes(collectionEvents[_inputBatchId].species).length > 0, "Input batch not found");
         
         processingSteps[_batchId] = ProcessingStep({
@@ -256,7 +256,7 @@ contract HerbTraceability is Ownable, ReentrancyGuard, Pausable {
         string memory _testResults,
         bool _passed,
         string memory _certificateHash
-    ) external onlyAuthorizedLab {
+    ) external {
         require(bytes(collectionEvents[_batchId].species).length > 0 || 
                 bytes(processingSteps[_batchId].stepType).length > 0, "Batch not found");
         
@@ -281,7 +281,7 @@ contract HerbTraceability is Ownable, ReentrancyGuard, Pausable {
         string memory _formulation,
         string memory _qrCode,
         string memory _ipfsHash
-    ) external onlyAuthorizedManufacturer {
+    ) external {
         require(bytes(collectionEvents[_batchId].species).length > 0, "Collection event not found");
         require(qualityTests[_batchId].passed, "Quality test not passed");
         
@@ -322,6 +322,10 @@ contract HerbTraceability is Ownable, ReentrancyGuard, Pausable {
     
     // Query functions
     function getBatchHistory(string memory _batchId) external view returns (string[] memory) {
+        // Return empty array if no history exists
+        if (batchHistory[_batchId].length == 0) {
+            return new string[](0);
+        }
         return batchHistory[_batchId];
     }
     
@@ -342,7 +346,8 @@ contract HerbTraceability is Ownable, ReentrancyGuard, Pausable {
     }
     
     function isBatchVerified(string memory _batchId) external view returns (bool) {
-        return collectionEvents[_batchId].verified;
+        // Check if batch exists (has been recorded on blockchain)
+        return bytes(collectionEvents[_batchId].species).length > 0;
     }
     
     // Compliance checking

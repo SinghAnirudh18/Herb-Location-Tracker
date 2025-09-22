@@ -47,6 +47,6 @@ router.get('/my-collections', getMyCollections);
 router.post('/collections', createCollection);
 router.put('/collections/:id', updateCollection);
 router.get('/my-stats', getMyStats);
-router.post('/collections/:id/images', upload.array('images', 5), uploadCollectionImages);
+
 
 module.exports = router;

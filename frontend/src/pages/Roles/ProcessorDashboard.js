@@ -40,7 +40,7 @@ const ProcessorDashboard = () => {
   });
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
-  
+
   // Batch lookup functionality
   const [batchLookup, setBatchLookup] = useState({
     batchId: '',
@@ -49,6 +49,33 @@ const ProcessorDashboard = () => {
     error: null
   });
   const [showBatchLookup, setShowBatchLookup] = useState(false);
+  const [grindingData, setGrindingData] = useState({
+    inputBatchId: '',
+    outputBatchId: '',
+    grindingType: '',
+    inputQuantity: '',
+    outputQuantity: '',
+    grindingParameters: {
+      particleSize: '',
+      moistureContent: '',
+      temperature: '',
+      duration: ''
+    },
+    equipment: {
+      grinderType: '',
+      screenSize: '',
+      capacity: ''
+    },
+    qualityCheck: {
+      color: '',
+      aroma: '',
+      texture: '',
+      moisture: ''
+    },
+    notes: '',
+    loading: false
+  });
+  const [showGrindingForm, setShowGrindingForm] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -321,6 +348,101 @@ const ProcessorDashboard = () => {
     }
   };
 
+  const handleGrindingSubmit = async (e) => {
+    e.preventDefault();
+    if (!grindingData.inputBatchId || !grindingData.outputBatchId || !grindingData.grindingType) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setGrindingData(prev => ({ ...prev, loading: true }));
+
+    try {
+      const response = await processorAPI.recordGrindingStep({
+        batchId: `GRIND-${Date.now()}`,
+        inputBatchId: grindingData.inputBatchId,
+        outputBatchId: grindingData.outputBatchId,
+        grindingType: grindingData.grindingType,
+        inputQuantity: parseFloat(grindingData.inputQuantity),
+        outputQuantity: parseFloat(grindingData.outputQuantity),
+        grindingParameters: grindingData.grindingParameters,
+        equipment: grindingData.equipment,
+        qualityCheck: grindingData.qualityCheck,
+        notes: grindingData.notes
+      });
+
+      if (response.success) {
+        toast.success('Grinding step recorded successfully!');
+        setShowGrindingForm(false);
+        setGrindingData({
+          inputBatchId: '',
+          outputBatchId: '',
+          grindingType: '',
+          inputQuantity: '',
+          outputQuantity: '',
+          grindingParameters: {
+            particleSize: '',
+            moistureContent: '',
+            temperature: '',
+            duration: ''
+          },
+          equipment: {
+            grinderType: '',
+            screenSize: '',
+            capacity: ''
+          },
+          qualityCheck: {
+            color: '',
+            aroma: '',
+            texture: '',
+            moisture: ''
+          },
+          notes: '',
+          loading: false
+        });
+        loadDashboardData(); // Refresh data
+      }
+    } catch (error) {
+      handleAPIError(error, 'Failed to record grinding step');
+    } finally {
+      setGrindingData(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const openGrindingForm = () => {
+    setShowGrindingForm(true);
+  };
+
+  const closeGrindingForm = () => {
+    setShowGrindingForm(false);
+    setGrindingData({
+      inputBatchId: '',
+      outputBatchId: '',
+      grindingType: '',
+      inputQuantity: '',
+      outputQuantity: '',
+      grindingParameters: {
+        particleSize: '',
+        moistureContent: '',
+        temperature: '',
+        duration: ''
+      },
+      equipment: {
+        grinderType: '',
+        screenSize: '',
+        capacity: ''
+      },
+      qualityCheck: {
+        color: '',
+        aroma: '',
+        texture: '',
+        moisture: ''
+      },
+      notes: '',
+      loading: false
+    });
+  };
+
   const clearBatchLookup = () => {
     setBatchLookup({
       batchId: '',
@@ -377,9 +499,12 @@ const ProcessorDashboard = () => {
             <Settings className="w-4 h-4 mr-2" />
             Equipment Settings
           </button>
-          <button className="btn-primary flex items-center">
+          <button
+            onClick={openGrindingForm}
+            className="btn-primary flex items-center"
+          >
             <Package className="w-4 h-4 mr-2" />
-            New Process
+            Record Grinding
           </button>
         </div>
       </div>
@@ -594,24 +719,41 @@ const ProcessorDashboard = () => {
               )}
               
               {/* Processing Steps */}
-              {batchLookup.batchData.processingSteps && batchLookup.batchData.processingSteps.length > 0 && (
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-3">Processing Steps</h4>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {batchLookup.batchData.processingSteps.map((step, index) => (
-                      <div key={step.id} className="p-2 bg-gray-50 rounded text-sm">
-                        <div className="flex justify-between items-center">
-                          <span className="font-medium">{step.processType}</span>
-                          <span className="text-gray-500">{new Date(step.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        {step.notes && (
-                          <p className="text-gray-600 text-xs mt-1">{step.notes}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Processing Steps */}
+{/* Processing Steps - SAFE RENDERING */}
+
+{batchLookup.batchData.processingSteps && batchLookup.batchData.processingSteps.length > 0 && (
+  <div>
+    <h4 className="font-medium text-gray-900 mb-3">Processing Steps</h4>
+    <div className="space-y-2 max-h-32 overflow-y-auto">
+      {batchLookup.batchData.processingSteps.map((step, index) => {
+        // SAFELY extract the processType - it might be an object!
+        const processType = typeof step.processType === 'string' 
+          ? step.processType 
+          : (step.processType?.processType || 'Unknown Step');
+        
+        // SAFELY extract notes
+        const notes = typeof step.notes === 'string' 
+          ? step.notes 
+          : (step.notes?.notes || '');
+
+        return (
+          <div key={step.id || index} className="p-2 bg-gray-50 rounded text-sm">
+            <div className="flex justify-between items-center">
+              <span className="font-medium">{processType}</span> {/* ✅ FIXED */}
+              <span className="text-gray-500">
+                {step.createdAt ? new Date(step.createdAt).toLocaleDateString() : 'Unknown date'}
+              </span>
+            </div>
+            {notes && (
+              <p className="text-gray-600 text-xs mt-1">{notes}</p> 
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+)}
             </div>
           </div>
           
@@ -643,6 +785,366 @@ const ProcessorDashboard = () => {
               Close
             </button>
           </div>
+        </motion.div>
+      )}
+
+      {/* Grinding Processing Form */}
+      {showGrindingForm && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-semibold text-gray-900">Record Grinding Process</h3>
+            <button
+              onClick={closeGrindingForm}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+
+          <form onSubmit={handleGrindingSubmit} className="space-y-6">
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-900">Basic Information</h4>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Input Batch ID *
+                  </label>
+                  <input
+                    type="text"
+                    value={grindingData.inputBatchId}
+                    onChange={(e) => setGrindingData(prev => ({ ...prev, inputBatchId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter input batch ID"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Output Batch ID *
+                  </label>
+                  <input
+                    type="text"
+                    value={grindingData.outputBatchId}
+                    onChange={(e) => setGrindingData(prev => ({ ...prev, outputBatchId: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter output batch ID"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Grinding Type *
+                  </label>
+                  <select
+                    value={grindingData.grindingType}
+                    onChange={(e) => setGrindingData(prev => ({ ...prev, grindingType: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select grinding type</option>
+                    <option value="coarse">Coarse Grinding</option>
+                    <option value="medium">Medium Grinding</option>
+                    <option value="fine">Fine Grinding</option>
+                    <option value="ultra-fine">Ultra-fine Grinding</option>
+                    <option value="cryogenic">Cryogenic Grinding</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Input Quantity (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={grindingData.inputQuantity}
+                      onChange={(e) => setGrindingData(prev => ({ ...prev, inputQuantity: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Output Quantity (kg) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={grindingData.outputQuantity}
+                      onChange={(e) => setGrindingData(prev => ({ ...prev, outputQuantity: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Grinding Parameters */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-900">Grinding Parameters</h4>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Particle Size (μm)
+                    </label>
+                    <input
+                      type="text"
+                      value={grindingData.grindingParameters.particleSize}
+                      onChange={(e) => setGrindingData(prev => ({
+                        ...prev,
+                        grindingParameters: { ...prev.grindingParameters, particleSize: e.target.value }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="100-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Moisture Content (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={grindingData.grindingParameters.moistureContent}
+                      onChange={(e) => setGrindingData(prev => ({
+                        ...prev,
+                        grindingParameters: { ...prev.grindingParameters, moistureContent: e.target.value }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="5.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Temperature (°C)
+                    </label>
+                    <input
+                      type="number"
+                      value={grindingData.grindingParameters.temperature}
+                      onChange={(e) => setGrindingData(prev => ({
+                        ...prev,
+                        grindingParameters: { ...prev.grindingParameters, temperature: e.target.value }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="25"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Duration (min)
+                    </label>
+                    <input
+                      type="number"
+                      value={grindingData.grindingParameters.duration}
+                      onChange={(e) => setGrindingData(prev => ({
+                        ...prev,
+                        grindingParameters: { ...prev.grindingParameters, duration: e.target.value }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="30"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Equipment Information */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-gray-900">Equipment Information</h4>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Grinder Type
+                  </label>
+                  <input
+                    type="text"
+                    value={grindingData.equipment.grinderType}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      equipment: { ...prev.equipment, grinderType: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Ball Mill"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Screen Size (mesh)
+                  </label>
+                  <input
+                    type="text"
+                    value={grindingData.equipment.screenSize}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      equipment: { ...prev.equipment, screenSize: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="200"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Capacity (kg/h)
+                  </label>
+                  <input
+                    type="number"
+                    value={grindingData.equipment.capacity}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      equipment: { ...prev.equipment, capacity: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quality Check */}
+            <div className="space-y-4">
+              <h4 className="font-medium text-gray-900">Quality Check</h4>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Color
+                  </label>
+                  <select
+                    value={grindingData.qualityCheck.color}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      qualityCheck: { ...prev.qualityCheck, color: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select</option>
+                    <option value="excellent">Excellent</option>
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                    <option value="poor">Poor</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Aroma
+                  </label>
+                  <select
+                    value={grindingData.qualityCheck.aroma}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      qualityCheck: { ...prev.qualityCheck, aroma: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select</option>
+                    <option value="excellent">Excellent</option>
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                    <option value="poor">Poor</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Texture
+                  </label>
+                  <select
+                    value={grindingData.qualityCheck.texture}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      qualityCheck: { ...prev.qualityCheck, texture: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select</option>
+                    <option value="excellent">Excellent</option>
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                    <option value="poor">Poor</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Moisture (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={grindingData.qualityCheck.moisture}
+                    onChange={(e) => setGrindingData(prev => ({
+                      ...prev,
+                      qualityCheck: { ...prev.qualityCheck, moisture: e.target.value }
+                    }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="5.00"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes
+              </label>
+              <textarea
+                value={grindingData.notes}
+                onChange={(e) => setGrindingData(prev => ({ ...prev, notes: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={3}
+                placeholder="Any additional notes about the grinding process..."
+              />
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={closeGrindingForm}
+                className="btn-outline"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={grindingData.loading}
+                className="btn-primary flex items-center"
+              >
+                {grindingData.loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Recording...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Record Grinding Step
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         </motion.div>
       )}
 

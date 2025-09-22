@@ -1,10 +1,7 @@
-// controllers/farmerController.js
+const { generateFarmerBatchId } = require('../utils/batchIdGenerator');
 const Collection = require('../models/Collection');
 const web3Service = require('../services/web3Service');
 const ipfsService = require('../services/ipfsService');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs').promises;
 
 const getMyCollections = async (req, res) => {
   try {
@@ -18,6 +15,7 @@ const getMyCollections = async (req, res) => {
       success: true,
       collections: collections.map(collection => ({
         id: collection.batchId,
+        _id: collection._id, // Add _id for frontend compatibility
         batchId: collection.batchId,
         herbSpecies: collection.herbSpecies,
         quantity: collection.quantity,
@@ -44,6 +42,9 @@ const getMyCollections = async (req, res) => {
           name: collection.labId.name,
           organization: collection.labId.organization
         } : null,
+        blockchainRecorded: collection.blockchainRecorded,
+        ipfsHash: collection.ipfsHash,
+        transactionHash: collection.transactionHash,
         createdAt: collection.createdAt,
         updatedAt: collection.updatedAt
       }))
@@ -81,13 +82,28 @@ const createCollection = async (req, res) => {
       });
     }
 
-    // Generate unique batch ID
-    const timestamp = Date.now().toString().slice(-6);
-    const herbCode = herbSpecies.slice(0, 3).toUpperCase();
-    const batchId = `${herbCode}-2024-${timestamp}`;
+    // Generate unique batch ID using the new utility
+    const batchId = generateFarmerBatchId(herbSpecies);
     
     console.log('🆔 Generated batch ID:', batchId);
     
+    // Validate batch ID format
+    if (!batchId || batchId.length < 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid batch ID generated'
+      });
+    }
+    
+    // Check if batch ID already exists
+    const existingBatch = await Collection.findOne({ batchId });
+    if (existingBatch) {
+      return res.status(400).json({
+        success: false,
+        message: 'Batch ID already exists. Please try again.'
+      });
+    }
+
     // Create collection data object with proper type conversion
     const collectionData = {
       batchId,
@@ -182,7 +198,8 @@ const createCollection = async (req, res) => {
         blockchainResult = await web3Service.recordCollectionOnBlockchain(blockchainData);
         
         // Check if this is a real blockchain transaction or mock
-        blockchainRecorded = blockchainResult.transactionHash.startsWith('0x') && 
+        blockchainRecorded = blockchainResult.transactionHash && 
+                           blockchainResult.transactionHash.startsWith('0x') && 
                            !blockchainResult.transactionHash.includes('mock');
         
         if (blockchainRecorded) {
@@ -191,19 +208,22 @@ const createCollection = async (req, res) => {
           console.log('⛓️ Collection prepared for blockchain (mock mode):', blockchainResult.transactionHash);
         }
         
-        // Update collection with blockchain info and change status
+        // Update collection with blockchain info - keep status consistent
         await Collection.findByIdAndUpdate(savedCollection._id, {
           blockchainRecorded: blockchainRecorded,
           ipfsHash: ipfsHash,
           transactionHash: blockchainResult.transactionHash,
           blockNumber: blockchainResult.blockNumber,
-          status: blockchainRecorded ? 'recorded' : 'pending' // Only change to recorded if real blockchain
+          status: blockchainRecorded ? 'recorded' : 'pending' // Only change if real blockchain
         });
       }
     } catch (blockchainError) {
       console.error('⚠️ Blockchain/IPFS recording failed:', blockchainError);
       // Don't fail the entire request if blockchain recording fails
     }
+    
+    // Refresh the collection data after updates
+    const updatedCollection = await Collection.findById(savedCollection._id);
     
     // Determine the final status message
     let statusMessage = 'Collection created successfully';
@@ -231,27 +251,28 @@ const createCollection = async (req, res) => {
       success: true,
       message: statusMessage,
       collection: {
-        id: savedCollection.batchId,
-        batchId: savedCollection.batchId,
-        herbSpecies: savedCollection.herbSpecies,
-        quantity: savedCollection.quantity,
-        location: savedCollection.location,
-        qualityGrade: savedCollection.qualityGrade,
-        harvestMethod: savedCollection.harvestMethod,
-        organicCertified: savedCollection.organicCertified,
-        weatherConditions: savedCollection.weatherConditions,
-        soilType: savedCollection.soilType,
-        notes: savedCollection.notes,
-        farmerId: savedCollection.farmerId,
-        farmerName: savedCollection.farmerName,
-        farmerAddress: savedCollection.farmerAddress,
-        collectionDate: savedCollection.collectionDate,
-        status: savedCollection.status,
-        createdAt: savedCollection.createdAt,
-        blockchainRecorded: blockchainRecorded,
-        ipfsHash: ipfsHash,
-        transactionHash: blockchainResult?.transactionHash || null,
-        blockNumber: blockchainResult?.blockNumber || null
+        id: updatedCollection.batchId,
+        _id: updatedCollection._id, // Important: Add _id for frontend
+        batchId: updatedCollection.batchId,
+        herbSpecies: updatedCollection.herbSpecies,
+        quantity: updatedCollection.quantity,
+        location: updatedCollection.location,
+        qualityGrade: updatedCollection.qualityGrade,
+        harvestMethod: updatedCollection.harvestMethod,
+        organicCertified: updatedCollection.organicCertified,
+        weatherConditions: updatedCollection.weatherConditions,
+        soilType: updatedCollection.soilType,
+        notes: updatedCollection.notes,
+        farmerId: updatedCollection.farmerId,
+        farmerName: updatedCollection.farmerName,
+        farmerAddress: updatedCollection.farmerAddress,
+        collectionDate: updatedCollection.collectionDate,
+        status: updatedCollection.status,
+        blockchainRecorded: updatedCollection.blockchainRecorded,
+        ipfsHash: updatedCollection.ipfsHash,
+        transactionHash: updatedCollection.transactionHash,
+        createdAt: updatedCollection.createdAt,
+        updatedAt: updatedCollection.updatedAt
       },
       blockchain: blockchainStatus
     });
@@ -329,6 +350,7 @@ const updateCollection = async (req, res) => {
       message: 'Collection updated successfully',
       collection: {
         id: collection.batchId,
+        _id: collection._id,
         batchId: collection.batchId,
         herbSpecies: collection.herbSpecies,
         quantity: collection.quantity,
@@ -448,101 +470,36 @@ const getMyStats = async (req, res) => {
   }
 };
 
-const uploadCollectionImages = async (req, res) => {
+const debugBatch = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { batchId } = req.params;
     
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No images provided'
-      });
-    }
-
-    // Find the collection to ensure it belongs to this farmer
-    const collection = await Collection.findOne({ 
-      batchId: id, 
-      farmerId: req.user._id 
-    });
+    console.log('🔍 Debugging batch:', batchId);
     
-    if (!collection) {
-      return res.status(404).json({
-        success: false,
-        message: 'Collection not found or you do not have permission to upload images'
-      });
-    }
-
-    const imageUrls = [];
-    const ipfsHashes = [];
-
-    // Process each uploaded image
-    for (const file of req.files) {
-      try {
-        // Upload to IPFS
-        const fileBuffer = await fs.readFile(file.path);
-        const ipfsHash = await ipfsService.uploadFile(fileBuffer, file.originalname);
-        
-        ipfsHashes.push({
-          filename: file.originalname,
-          ipfsHash: ipfsHash,
-          size: file.size,
-          mimetype: file.mimetype
-        });
-        
-        imageUrls.push(`/api/ipfs/${ipfsHash}`);
-        
-        // Clean up temporary file
-        await fs.unlink(file.path);
-      } catch (uploadError) {
-        console.error('Error uploading file to IPFS:', uploadError);
-        // Continue with other files even if one fails
+    // Check if batch exists in database
+    const collection = await Collection.findOne({ batchId });
+    console.log('📊 Database result:', collection);
+    
+    // Check blockchain status
+    let blockchainStatus = 'not_checked';
+    try {
+      if (web3Service.isInitialized) {
+        const verified = await web3Service.isBatchVerified(batchId);
+        blockchainStatus = verified ? 'verified' : 'not_verified';
       }
-    }
-
-    // Update collection with image information
-    await Collection.findOneAndUpdate(
-      { batchId: id, farmerId: req.user._id },
-      { 
-        $push: { 
-          images: { $each: ipfsHashes },
-          imageUrls: { $each: imageUrls }
-        },
-        updatedAt: new Date()
-      }
-    );
-
-    // Record image upload on blockchain if available
-    if (web3Service.isInitialized && ipfsHashes.length > 0) {
-      try {
-        const imageData = {
-          batchId: id,
-          imageHashes: ipfsHashes.map(img => img.ipfsHash),
-          uploadedBy: req.user._id,
-          timestamp: new Date().toISOString()
-        };
-        
-        const metadataHash = await ipfsService.uploadJSON(imageData);
-        // This would record the image upload event on blockchain
-        console.log('Image metadata uploaded to IPFS:', metadataHash);
-      } catch (blockchainError) {
-        console.error('Failed to record images on blockchain:', blockchainError);
-        // Don't fail the request if blockchain recording fails
-      }
+    } catch (blockchainError) {
+      blockchainStatus = 'blockchain_error: ' + blockchainError.message;
     }
     
     res.json({
-      success: true,
-      message: `${ipfsHashes.length} images uploaded successfully`,
-      collectionId: id,
-      images: ipfsHashes,
-      imageUrls: imageUrls
+      batchId,
+      existsInDatabase: !!collection,
+      databaseStatus: collection?.status,
+      blockchainStatus,
+      collectionData: collection
     });
   } catch (error) {
-    console.error('Error uploading collection images:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
-    });
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -551,5 +508,5 @@ module.exports = {
   createCollection,
   updateCollection,
   getMyStats,
-  uploadCollectionImages
+  debugBatch
 };

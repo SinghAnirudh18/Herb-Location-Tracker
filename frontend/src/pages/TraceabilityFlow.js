@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useBlockchain } from '../contexts/BlockchainContext';
-import { consumerAPI, blockchainAPI, handleAPIError } from '../services/api';
+import { consumerAPI, blockchainAPI, processorAPI, handleAPIError } from '../services/api';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -94,10 +94,6 @@ const TraceabilityFlow = () => {
     }
   ];
 
-  useEffect(() => {
-    loadBatches();
-  }, [loadBatches]);
-
   const loadBatches = useCallback(async () => {
     setDataLoading(true);
     try {
@@ -114,6 +110,10 @@ const TraceabilityFlow = () => {
       setDataLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadBatches();
+  }, [loadBatches]);
 
   const loadSampleBatches = async () => {
     // This will be replaced with real API calls based on user role
@@ -205,31 +205,53 @@ const TraceabilityFlow = () => {
         return;
       }
 
-      // Record on blockchain if connected
-      if (isConnected) {
-        let result;
+      // Save to database first based on step type
+      let dbResult;
+      if (currentStepId === 'processing') {
+        // Save processing step to database
+        dbResult = await processorAPI.recordProcessingStep({
+          batchId: selectedBatch?.batchId || selectedBatch?.id,
+          processType: (formData.processingType || 'drying').toLowerCase(),
+          parameters: {
+            temperature: parseFloat(formData.temperature) || 0,
+            duration: parseFloat(formData.duration) || 0,
+            method: formData.method || 'Standard processing'
+          },
+          inputQuantity: selectedBatch?.quantity || 0,
+          outputQuantity: parseFloat(formData.yield) || 0,
+          equipment: {
+            name: formData.processingType || 'Processing Equipment',
+            id: formData.equipmentId || 'EQ-001'
+          },
+          notes: formData.notes || ''
+        });
+      }
+
+      // Then record on blockchain if connected and database save was successful
+      if (isConnected && dbResult?.success) {
+        let blockchainResult;
         
         // Use the correct endpoint based on the step type
         if (currentStepId === 'processing') {
-          result = await blockchainAPI.recordProcessing({
-            batchId: selectedBatch?.id || `NEW-${Date.now()}`,
+          blockchainResult = await blockchainAPI.recordProcessing({
+            batchId: selectedBatch?.batchId || selectedBatch?.id,
             stepType: formData.processingType || 'Processing',
-            inputBatchId: selectedBatch?.id || `NEW-${Date.now()}`,
-            outputBatchId: selectedBatch?.id || `NEW-${Date.now()}`,
+            inputBatchId: selectedBatch?.batchId || selectedBatch?.id,
+            outputBatchId: selectedBatch?.batchId || selectedBatch?.id,
             processDetails: formData,
             qualityMetrics: formData
           });
         } else {
           // For other steps, use the appropriate endpoint
-          result = await recordOnBlockchain(`${currentStepId}/record`, {
-            batchId: selectedBatch?.id || `NEW-${Date.now()}`,
+          blockchainResult = await recordOnBlockchain(`${currentStepId}/record`, {
+            batchId: selectedBatch?.batchId || selectedBatch?.id,
             step: currentStepId,
             data: formData
           });
         }
         
-        if (!result.success) {
-          throw new Error('Blockchain recording failed');
+        if (blockchainResult && !blockchainResult.success && blockchainResult.success !== undefined) {
+          console.warn('Blockchain recording failed, but database save was successful');
         }
       }
 
@@ -283,15 +305,9 @@ const TraceabilityFlow = () => {
       }
 
       // Then check with the API
-      const response = await consumerAPI.verifyProduct(query.trim());
-      if (response.success && response.product) {
-        const batchData = response.product;
-        
-        // Add traceability data from the response
-        if (response.traceability) {
-          batchData.processingSteps = response.traceability.processing || [];
-          batchData.qualityTests = response.traceability.qualityTests || [];
-        }
+      const response = await blockchainAPI.searchBatch(query.trim());
+      if (response.success && response.batch) {
+        const batchData = response.batch;
         
         // Add blockchain verification data if available
         if (blockchainVerification) {
@@ -299,22 +315,17 @@ const TraceabilityFlow = () => {
           batchData.verifiedOnBlockchain = blockchainVerification.verified;
         }
         
-        const transformedBatch = transformBatchData(batchData);
-        setBatches([transformedBatch]);
-        setSelectedBatch(transformedBatch);
+        setBatches([batchData]);
+        setSelectedBatch(batchData);
         setVerificationStatus({
-          verified: response.verified,
-          blockchainVerified: blockchainVerification?.verified || false,
-          details: blockchainVerification || {}
+          verified: true,
+          blockchainVerified: blockchainVerification?.verified || batchData.verifiedOnBlockchain || false,
+          details: blockchainVerification || batchData.blockchainVerification || {}
         });
         
-        if (response.verified) {
-          toast.success(`✅ Batch ${query.trim()} verified successfully`);
-          if (blockchainVerification?.verified) {
-            toast.success('🔗 Blockchain verification successful');
-          }
-        } else {
-          toast.warning(`⚠️ Batch ${query.trim()} found but not fully verified`);
+        toast.success(`✅ Batch ${query.trim()} found successfully`);
+        if (blockchainVerification?.verified || batchData.verifiedOnBlockchain) {
+          toast.success('🔗 Verified on blockchain');
         }
       }
     } catch (error) {

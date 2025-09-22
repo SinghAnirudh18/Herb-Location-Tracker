@@ -1,8 +1,9 @@
 const express = require('express');
-const { 
+const {
   getAssignedBatches,
   startProcessing,
   recordProcessingStep,
+  recordGrindingStep,
   completeProcessing,
   getProcessingHistory,
   getMyStats,
@@ -18,6 +19,7 @@ router.get('/assigned-batches', getAssignedBatches);
 router.get('/batches/:batchId', lookupBatchById);
 router.post('/batches/:batchId/start', startProcessing);
 router.post('/processing-steps', recordProcessingStep);
+router.post('/grinding-steps', recordGrindingStep);
 router.post('/batches/:batchId/complete', completeProcessing);
 router.get('/processing-history', getProcessingHistory);
 router.get('/my-stats', getMyStats);

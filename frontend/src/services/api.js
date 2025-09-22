@@ -129,9 +129,9 @@ export const processorAPI = {
     return response.data;
   },
 
-  // Record processing step on blockchain
-  recordProcessingStepOnBlockchain: async (processingData) => {
-    const response = await api.post('/blockchain/processing/record', processingData);
+  // Record grinding step
+  recordGrindingStep: async (grindingData) => {
+    const response = await api.post('/processors/grinding-steps', grindingData);
     return response.data;
   },
 
@@ -205,7 +205,7 @@ export const labAPI = {
   },
 };
 
-// Consumer API
+// Lab API
 export const consumerAPI = {
   // Verify product by QR code or batch ID
   verifyProduct: async (identifier) => {
@@ -291,6 +291,12 @@ export const blockchainAPI = {
   // Get processing chain for a batch
   getProcessingChain: async (batchId) => {
     const response = await api.get(`/blockchain/processing/chain/${batchId}`);
+    return response.data;
+  },
+
+  // Search for batch by batchId
+  searchBatch: async (batchId) => {
+    const response = await api.get(`/blockchain/search-batch/${batchId}`);
     return response.data;
   },
 };
